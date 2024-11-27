@@ -4,12 +4,14 @@ from fuzzywuzzy import fuzz
 from fuzzywuzzy import process
 import pdfplumber
 from PIL import Image
+from docx import Document
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
 from .models import Contract, ExtractedData
 import pytesseract
+from datetime import datetime
 
 # Load spaCy model globally
 nlp = spacy.load("en_core_web_sm")
@@ -42,6 +44,8 @@ def extract_data_from_contract(contract):
         full_text = extract_text_from_pdf(file_path)
     elif file_path.endswith(('.jpg', '.png')):
         full_text = extract_text_from_image(file_path)
+    elif file_path.endswith('.docx'):
+        full_text = extract_text_from_docx(file_path)
     else:
         full_text = ""
 
@@ -53,7 +57,7 @@ def extract_data_from_contract(contract):
     extracted_data["start_date"], extracted_data["end_date"] = extract_dates_with_context(full_text)
 
     # Extract renewal terms with extended keyword list
-    extracted_data["renewal_terms"] = extract_renewal_terms(full_text)
+    extracted_data["renewal_terms"] = extract_renewal_terms(full_text, extracted_data)
 
     # Extract payment details with improved filtering
     extracted_data["payment_details"] = extract_payment_details(full_text)
@@ -68,8 +72,6 @@ def extract_data_from_contract(contract):
         payment_details=extracted_data["payment_details"],
     )
 
-
-
 def extract_text_from_pdf(file_path):
     with pdfplumber.open(file_path) as pdf:
         return "".join(page.extract_text() for page in pdf.pages if page.extract_text())
@@ -79,54 +81,77 @@ def extract_text_from_image(file_path):
     return pytesseract.image_to_string(Image.open(file_path))
 
 
+def extract_text_from_docx(file_path):
+    doc = Document(file_path)
+    return "\n".join([paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()])
+
+
 def extract_party_names(doc):
     # Extract organization and person names, filter irrelevant matches
     party_names = [ent.text for ent in doc.ents if ent.label_ in ["ORG", "PERSON"]]
-    # Filter out short or meaningless matches
-    return [name for name in party_names if len(name) > 3 and not name.isdigit()]
+    # Deduplicate and remove generic terms
+    filtered_names = list(set([name.strip() for name in party_names if len(name) > 3 and not name.lower() in ["subscriber", "service provider"]]))
+    return filtered_names
+
+
 
 def extract_dates_with_context(text):
     # Improved date extraction with context
-    dates = re.findall(r"\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b", text)
+    dates = re.findall(r"\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\b\w+ \d{1,2}, \d{4}\b", text)
     start_date, end_date = None, None
 
     for keyword in DATE_KEYWORDS:
-        keyword_contexts = re.findall(rf"{keyword}[:\s]*\d{{1,2}}[./-]\d{{1,2}}[./-]\d{{2,4}}", text, re.IGNORECASE)
+        keyword_contexts = re.findall(rf"{keyword}[:\s]*(\b\d{{1,2}}[./-]\d{{1,2}}[./-]\d{{2,4}}|\b\w+ \d{{1,2}}, \d{{4}})", text, re.IGNORECASE)
         for context in keyword_contexts:
-            date = re.search(r"\d{1,2}[./-]\d{1,2}[./-]\d{2,4}", context).group()
-            if "start" in keyword.lower() or "arrival" in keyword.lower():
-                start_date = start_date or date
-            elif "end" in keyword.lower() or "termination" in keyword.lower():
-                end_date = end_date or date
+            parsed_date = parse_date(context)  # Convert to YYYY-MM-DD
+            if parsed_date:
+                if "start" in keyword.lower() or "arrival" in keyword.lower() or "begins on" in keyword.lower():
+                    start_date = start_date or parsed_date
+                elif "end" in keyword.lower() or "termination" in keyword.lower():
+                    end_date = end_date or parsed_date
 
-    # Fall back to extracting the first two dates if no context found
+    # Fallback to extracting the first two dates if no context found
     if not start_date and dates:
-        start_date = dates[0]
+        start_date = parse_date(dates[0])  # Convert to YYYY-MM-DD
     if not end_date and len(dates) > 1:
-        end_date = dates[1]
+        end_date = parse_date(dates[1])  # Convert to YYYY-MM-DD
 
     return start_date, end_date
 
-def extract_renewal_terms(text):
+
+def parse_date(date_string):
+    """
+    Convert a date string to the YYYY-MM-DD format. Returns None if parsing fails.
+    """
+    formats = ["%B %d, %Y", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%m-%d-%Y", "%Y-%m-%d"]
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_string, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
+def extract_renewal_terms(text, extracted_data):
     # Extend keyword list and search for terms
-    keywords = ["auto-renewal", "renewal terms", "valid until", "termination notice", "validity period"]
+    keywords = ["auto-renewal", "renewal terms", "valid until", "termination notice", "validity period", "Initial Term"]
     for keyword in keywords:
         match = re.search(rf"{keyword}.*", text, re.IGNORECASE)
         if match:
-            return match.group(0)
+            renewal_terms = match.group(0)
+            # Extract dates from renewal terms if present
+            dates_in_terms = re.findall(r"\b\w+ \d{1,2}, \d{4}\b", renewal_terms)
+            if len(dates_in_terms) >= 1:
+                extracted_data["start_date"] = extracted_data["start_date"] or dates_in_terms[0]
+            if len(dates_in_terms) >= 2:
+                extracted_data["end_date"] = extracted_data["end_date"] or dates_in_terms[1]
+            return renewal_terms
     return None
 
 
 
+
 def extract_payment_details(text):
-    # Improved logic for payment details
-    payments = re.findall(r"\d+[.,]?\d*\s*%|\$\d+[.,]?\d*|\€\d+[.,]?\d*", text)
-    filtered_payments = []
-    for payment in payments:
-        # Check for relevance (e.g., percentage near "interest rate")
-        if re.search(r"(interest|rate|payment|fee)", text, re.IGNORECASE):
-            filtered_payments.append(payment)
-    return ", ".join(filtered_payments) if filtered_payments else None
+    payments = re.findall(r"\$\d+[.,]?\d*|\€\d+[.,]?\d*", text)
+    return ", ".join(payments) if payments else None
 
 def signup(request):
     if request.method == 'POST':
