@@ -1,52 +1,159 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Contract Details</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contract Details | Contract Manager</title>
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css"
       rel="stylesheet"
     />
     <style>
       body {
-        background: linear-gradient(135deg, #f3e5f5, #e0f7fa);
-        font-family: 'Inter', sans-serif;
-      }
-      .container {
-        margin-top: 50px;
-      }
-      .details-header {
+        background-color: #000; /* Sleek black background */
+        color: #fff;
+        font-family: "SF Pro Display", sans-serif;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
         text-align: center;
+      }
+
+      .container {
+        max-width: 700px;
+        width: 100%;
+        padding: 30px;
+        background: rgba(255, 255, 255, 0.05); /* Transparent card style */
+        border-radius: 15px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+        animation: fadeIn 1s ease-in-out;
+      }
+
+      h1 {
         font-size: 28px;
-        font-weight: 700;
-        color: #007bff;
+        font-weight: bold;
         margin-bottom: 20px;
+        color: #fff;
+      }
+
+      .card {
+        background: rgba(255, 255, 255, 0.05);
+        border: none;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+      }
+
+      .card-title {
+        font-size: 20px;
+        font-weight: bold;
+        color: #fff;
+        margin-bottom: 15px;
+      }
+
+      .card-text {
+        font-size: 16px;
+        color: #aaa;
+        text-align: left;
+      }
+
+      ul {
+        padding-left: 20px;
+        text-align: left;
+      }
+
+      li {
+        font-size: 16px;
+        color: #ccc;
+        margin-bottom: 10px;
+      }
+
+      .btn-primary,
+      .btn-secondary {
+        padding: 10px 20px;
+        font-size: 16px;
+        font-weight: bold;
+        border-radius: 8px;
+        border: none;
+        transition: all 0.3s ease;
+      }
+
+      .btn-primary {
+        background-color: #007bff;
+        color: #fff;
+      }
+
+      .btn-primary:hover {
+        background-color: #0056b3;
+      }
+
+      .btn-secondary {
+        background-color: #6c757d;
+        color: #fff;
+      }
+
+      .btn-secondary:hover {
+        background-color: #4e555b;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
     </style>
   </head>
   <body>
     <div class="container">
-      <h1 class="details-header">Contract Details</h1>
+      <h1>Contract Details</h1>
       <div class="card">
         <div class="card-body">
           <h5 class="card-title">Contract File: {{ contract.file.name }}</h5>
           <p class="card-text">
-            <strong>Uploaded On:</strong> {{ contract.upload_date|date:"d M Y, H:i" }}<br />
-            <strong>Extracted Information:</strong><br />
-            {% if extracted_data %}
-              <ul>
-                <li><strong>Party Names:</strong> {{ extracted_data.party_names }}</li>
-                <li><strong>Start Date:</strong> {{ extracted_data.start_date }}</li>
-                <li><strong>End Date:</strong> {{ extracted_data.end_date }}</li>
-                <li><strong>Renewal Terms:</strong> {{ extracted_data.renewal_terms }}</li>
-                <li><strong>Payment Details:</strong> {{ extracted_data.payment_details }}</li>
-              </ul>
-            {% else %}
-              <p>No extracted data available for this contract.</p>
-            {% endif %}
+            <strong>Uploaded On:</strong> {{ contract.upload_date|date:"d M Y,
+            H:i" }}<br />
+            <strong>Extracted Information:</strong>
           </p>
-          <a href="{% url 'dashboard' %}" class="btn btn-secondary">Back to Dashboard</a>
+          {% if extracted_data %}
+          <ul>
+            <li>
+              <strong>Party Names:</strong> {{ extracted_data.party_names }}
+            </li>
+            <li>
+              <strong>Start Date:</strong> {{ extracted_data.start_date }}
+            </li>
+            <li><strong>End Date:</strong> {{ extracted_data.end_date }}</li>
+            <li>
+              <strong>Renewal Terms:</strong> {{ extracted_data.renewal_terms }}
+            </li>
+            <li>
+              <strong>Payment Details:</strong> {{
+              extracted_data.payment_details }}
+            </li>
+          </ul>
+          {% else %}
+          <p class="card-text">
+            No extracted data available for this contract.
+          </p>
+          {% endif %}
+          <div class="d-flex justify-content-between mt-4">
+            <a href="{% url 'dashboard' %}" class="btn btn-secondary"
+              >Back to Dashboard</a
+            >
+            <a
+              href="{% url 'review_contract' contract.id %}"
+              class="btn btn-primary"
+              >Review Contract</a
+            >
+          </div>
         </div>
       </div>
     </div>

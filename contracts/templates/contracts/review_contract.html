@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Review Contract | Contract Manager</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        background-color: #000; /* Sleek black background */
+        color: #fff;
+        font-family: "SF Pro Display", sans-serif; /* Apple-inspired font */
+        min-height: 100vh;
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+      }
+
+      .container {
+        max-width: 700px;
+        width: 100%;
+        padding: 30px;
+        background: rgba(255, 255, 255, 0.05); /* Transparent card style */
+        border-radius: 15px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+        animation: fadeIn 1s ease-in-out;
+      }
+
+      h1 {
+        font-size: 28px;
+        font-weight: bold;
+        margin-bottom: 20px;
+      }
+
+      .form-label {
+        font-weight: bold;
+        color: #aaa;
+        text-align: left;
+        display: block;
+        margin-bottom: 5px;
+      }
+
+      .form-control {
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+        border: 1px solid #555;
+        border-radius: 8px;
+        padding: 10px;
+        margin-bottom: 20px;
+        transition: all 0.3s ease;
+      }
+
+      .form-control:focus {
+        border-color: #007bff;
+        background: rgba(255, 255, 255, 0.15);
+        box-shadow: 0 0 10px rgba(0, 123, 255, 0.3);
+      }
+
+      .btn-primary {
+        background-color: #007bff;
+        color: #fff;
+        padding: 12px 15px;
+        font-size: 16px;
+        font-weight: bold;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        width: 100%;
+      }
+
+      .btn-primary:hover {
+        background-color: #0056b3;
+        transform: translateY(-2px);
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Review and Update Contract</h1>
+      <form method="POST">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label for="party_names" class="form-label">Party Names</label>
+          <textarea
+            id="party_names"
+            name="party_names"
+            class="form-control"
+            rows="3"
+            placeholder="Enter party names..."
+          >
+{{ form.party_names.value }}</textarea
+          >
+        </div>
+        <div class="mb-3">
+          <label for="start_date" class="form-label">Start Date</label>
+          <input
+            id="start_date"
+            type="date"
+            name="start_date"
+            class="form-control"
+            value="{{ form.start_date.value }}"
+          />
+        </div>
+        <div class="mb-3">
+          <label for="end_date" class="form-label">End Date</label>
+          <input
+            id="start_date"
+            type="date"
+            name="start_date"
+            class="form-control"
+            value="{{ form.start_date.value|default_if_none:'' }}"
+          />
+        </div>
+        <div class="mb-3">
+          <label for="renewal_terms" class="form-label">Renewal Terms</label>
+          <textarea
+            id="renewal_terms"
+            name="renewal_terms"
+            class="form-control"
+            rows="3"
+            placeholder="Enter renewal terms..."
+          >
+{{ form.renewal_terms.value }}</textarea
+          >
+        </div>
+        <div class="mb-3">
+          <label for="payment_details" class="form-label"
+            >Payment Details</label
+          >
+          <textarea
+            id="payment_details"
+            name="payment_details"
+            class="form-control"
+            rows="3"
+            placeholder="Enter payment details..."
+          >
+{{ form.payment_details.value }}</textarea
+          >
+        </div>
+        <button type="submit" class="btn-primary">Save Changes</button>
+      </form>
+    </div>
+  </body>
+</html>

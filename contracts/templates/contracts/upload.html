@@ -3,81 +3,97 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Upload Contract</title>
+    <title>Upload Contract | Contract Manager</title>
     <!-- Bootstrap CSS -->
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css"
       rel="stylesheet"
     />
-    <!-- Google Fonts -->
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
-      rel="stylesheet"
-    />
     <style>
-      /* General Styles */
       body {
-        background: linear-gradient(135deg, #e0f7fa, #e1bee7);
-        font-family: "Inter", sans-serif;
-        color: #333333;
-        margin: 0;
-        padding: 0;
-        min-height: 100vh;
+        background-color: #000; /* Sleek black background for a modern look */
+        color: #fff;
+        font-family: "SF Pro Display", sans-serif; /* Apple-inspired font */
         display: flex;
         justify-content: center;
         align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 0;
       }
 
-      /* Container */
       .upload-container {
-        max-width: 500px;
+        max-width: 600px;
         width: 100%;
+        background: rgba(255, 255, 255, 0.05); /* Transparent card style */
         padding: 30px;
-        background: #ffffff;
         border-radius: 15px;
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
         animation: fadeIn 1s ease-in-out;
+        text-align: center;
       }
 
-      /* Header */
       .upload-header {
         font-size: 28px;
-        font-weight: 700;
-        margin-bottom: 20px;
-        text-align: center;
-        color: #007bff;
+        font-weight: bold;
+        color: #fff;
+        margin-bottom: 15px;
       }
 
       .upload-description {
         font-size: 16px;
-        text-align: center;
-        color: #555555;
-        margin-bottom: 20px;
+        color: #aaa;
+        margin-bottom: 25px;
       }
 
-      /* Form styles */
+      .drop-zone {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 150px;
+        border: 2px dashed #555;
+        border-radius: 12px;
+        color: #aaa;
+        font-size: 16px;
+        font-weight: 500;
+        margin-bottom: 20px;
+        transition: all 0.3s ease;
+        cursor: pointer;
+      }
+
+      .drop-zone:hover {
+        border-color: #007bff;
+        background: rgba(0, 123, 255, 0.05);
+        color: #007bff;
+      }
+
       .form-control {
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+        border: 1px solid #555;
         border-radius: 8px;
         padding: 12px;
-        border: 2px solid #ced4da;
+        margin-bottom: 20px;
         transition: all 0.3s ease;
       }
 
       .form-control:focus {
         border-color: #007bff;
+        background: rgba(255, 255, 255, 0.15);
         box-shadow: 0 0 10px rgba(0, 123, 255, 0.3);
       }
 
       .btn-upload {
         background-color: #007bff;
-        border: none;
-        color: #ffffff;
+        color: #fff;
         padding: 12px 15px;
         font-size: 16px;
         font-weight: 600;
+        border: none;
         border-radius: 8px;
         cursor: pointer;
         transition: all 0.3s ease;
+        width: 100%;
       }
 
       .btn-upload:hover {
@@ -85,34 +101,10 @@
         transform: translateY(-2px);
       }
 
-      /* Drag-and-Drop Upload Box */
-      .drop-zone {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        height: 150px;
-        border: 2px dashed #ced4da;
-        border-radius: 10px;
-        margin-bottom: 20px;
-        color: #555555;
-        font-size: 16px;
-        font-weight: 500;
-        background: #f9f9f9;
-        transition: all 0.3s ease;
-      }
-
-      .drop-zone.dragover {
-        border-color: #007bff;
-        background: #e3f2fd;
-        color: #007bff;
-      }
-
-      /* Footer */
       .footer {
-        text-align: center;
         font-size: 14px;
-        color: #777777;
-        margin-top: 15px;
+        color: #777;
+        margin-top: 20px;
       }
 
       .footer a {
@@ -124,11 +116,10 @@
         text-decoration: underline;
       }
 
-      /* Fade-in animation */
       @keyframes fadeIn {
         from {
           opacity: 0;
-          transform: translateY(-20px);
+          transform: translateY(-10px);
         }
         to {
           opacity: 1;
@@ -151,15 +142,13 @@
         {% csrf_token %}
         <input
           type="file"
-          class="form-control mb-3"
+          class="form-control"
           id="contract"
           name="contract"
           required
           onchange="handleFileSelect(event)"
         />
-        <div class="d-grid">
-          <button type="submit" class="btn btn-upload">Upload Now</button>
-        </div>
+        <button type="submit" class="btn-upload">Upload Now</button>
       </form>
       <p class="footer">Need help? <a href="#">Contact Support</a></p>
     </div>
@@ -182,6 +171,10 @@
         event.preventDefault();
         dropZone.classList.remove("dragover");
         fileInput.files = event.dataTransfer.files;
+        const file = event.dataTransfer.files[0];
+        if (file) {
+          dropZone.textContent = `File selected: ${file.name}`;
+        }
       });
 
       function handleFileSelect(event) {

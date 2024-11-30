@@ -1,7 +1,5 @@
 import re
 import spacy
-from fuzzywuzzy import fuzz
-from fuzzywuzzy import process
 import pdfplumber
 from PIL import Image
 from docx import Document
@@ -10,25 +8,78 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
 from .models import Contract, ExtractedData
+from .forms import ContractReviewForm
 import pytesseract
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Load spaCy model globally
 nlp = spacy.load("en_core_web_sm")
 
-# Define possible keywords for date extraction
-DATE_KEYWORDS = ["start date", "end date", "arrival date", "effective date", "termination date"]
+# Define keywords for contextual extraction
+DATE_KEYWORDS = [
+    "start date", "effective date", "commences on", "valid from", "begins on",
+    "end date", "termination date", "expires on", "valid until", "ends on"
+]
+RENEWAL_KEYWORDS = [
+    "auto-renewal", "renewal terms", "valid until", "termination notice",
+    "validity period", "Initial Term", "extension", "renewable for",
+    "subscription period", "renewal clause"
+]
+PAYMENT_KEYWORDS = ["payment", "fee", "cost", "price"]
 
+# Landing page
+def landing_page(request):
+    if request.user.is_authenticated:
+        return redirect('dashboard')
+    return render(request, 'contracts/landing_page.html')
+
+# Upload contract
 @login_required
 def upload_contract(request):
     if request.method == "POST":
         file = request.FILES.get('contract')
         contract = Contract.objects.create(user=request.user, file=file)
         extract_data_from_contract(contract)
-        return redirect('dashboard')
+        return redirect('review_contract', pk=contract.pk)
     return render(request, 'contracts/upload.html')
 
+# Review contract
+@login_required
+def review_contract(request, pk):
+    contract = get_object_or_404(Contract, pk=pk, user=request.user)
+    extracted_data = ExtractedData.objects.filter(contract=contract).first()
 
+    if request.method == "POST":
+        form = ContractReviewForm(request.POST, instance=extracted_data)
+        if form.is_valid():
+            form.save()
+            return redirect('dashboard')
+    else:
+        form = ContractReviewForm(instance=extracted_data)
+
+    print("Form Initial Data:", form.initial)  # Debug log
+    return render(request, 'contracts/review_contract.html', {
+        'form': form,
+        'contract': contract
+    })
+
+# Dashboard
+@login_required
+def dashboard(request):
+    contracts = Contract.objects.filter(user=request.user).order_by('-upload_date')
+    return render(request, 'contracts/dashboard.html', {'contracts': contracts})
+
+# Contract details
+@login_required
+def contract_details(request, pk):
+    contract = get_object_or_404(Contract, pk=pk, user=request.user)
+    extracted_data = ExtractedData.objects.filter(contract=contract).first()
+    return render(request, 'contracts/contract_details.html', {
+        'contract': contract,
+        'extracted_data': extracted_data,
+    })
+
+# Extract data from contract
 def extract_data_from_contract(contract):
     file_path = contract.file.path
     extracted_data = {
@@ -39,7 +90,7 @@ def extract_data_from_contract(contract):
         "payment_details": None,
     }
 
-    # Read the content of the file
+    # Extract text based on file type
     if file_path.endswith('.pdf'):
         full_text = extract_text_from_pdf(file_path)
     elif file_path.endswith(('.jpg', '.png')):
@@ -49,20 +100,17 @@ def extract_data_from_contract(contract):
     else:
         full_text = ""
 
-    # Use spaCy to extract entities
     doc = nlp(full_text)
-    extracted_data["party_names"] = extract_party_names(doc)
-
-    # Extract dates with improved logic
+    extracted_data["party_names"] = clean_party_names(extract_party_names(doc))
     extracted_data["start_date"], extracted_data["end_date"] = extract_dates_with_context(full_text)
-
-    # Extract renewal terms with extended keyword list
     extracted_data["renewal_terms"] = extract_renewal_terms(full_text, extracted_data)
-
-    # Extract payment details with improved filtering
+    if not extracted_data["end_date"]:
+        extracted_data["end_date"] = infer_end_date_from_terms(extracted_data["start_date"], extracted_data["renewal_terms"])
     extracted_data["payment_details"] = extract_payment_details(full_text)
 
-    # Save extracted data to the database
+    print("Extracted Data:", extracted_data)  # Debug log
+
+    # Save extracted data
     ExtractedData.objects.create(
         contract=contract,
         party_names=", ".join(extracted_data["party_names"]),
@@ -72,110 +120,156 @@ def extract_data_from_contract(contract):
         payment_details=extracted_data["payment_details"],
     )
 
+# Extract text functions
 def extract_text_from_pdf(file_path):
     with pdfplumber.open(file_path) as pdf:
-        return "".join(page.extract_text() for page in pdf.pages if page.extract_text())
-
+        return " ".join(page.extract_text() for page in pdf.pages if page.extract_text())
 
 def extract_text_from_image(file_path):
     return pytesseract.image_to_string(Image.open(file_path))
 
-
 def extract_text_from_docx(file_path):
     doc = Document(file_path)
-    return "\n".join([paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()])
+    return "\n".join(paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip())
 
-
+# Entity extraction functions
 def extract_party_names(doc):
-    # Extract organization and person names, filter irrelevant matches
-    party_names = [ent.text for ent in doc.ents if ent.label_ in ["ORG", "PERSON"]]
-    # Deduplicate and remove generic terms
-    filtered_names = list(set([name.strip() for name in party_names if len(name) > 3 and not name.lower() in ["subscriber", "service provider"]]))
-    return filtered_names
+    return [ent.text for ent in doc.ents if ent.label_ in {"ORG", "PERSON"}]
+
+def clean_party_names(party_names):
+    """
+    Remove irrelevant entries and duplicates, normalizing party names.
+    """
+    exclude_keywords = {"notify", "signature", "signatures", "service provider", "address", "ownership"}
+    cleaned_names = [
+        name.strip() for name in party_names
+        if not any(keyword in name.lower() for keyword in exclude_keywords)
+    ]
+    # Remove duplicates while preserving case sensitivity
+    return list({name.lower(): name for name in cleaned_names}.values())
 
 
+# Date extraction
+def parse_date(date_string):
+    formats = ["%B %d, %Y", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%m-%d-%Y", "%Y-%m-%d", "%B %Y"]
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_string.strip(), fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
 
 def extract_dates_with_context(text):
-    # Improved date extraction with context
-    dates = re.findall(r"\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\b\w+ \d{1,2}, \d{4}\b", text)
+    """
+    Extract start and end dates from text using contextual matching and fallback.
+    """
+    start_date_keywords = ["start date", "effective date", "commences on", "valid from", "begins on"]
+    end_date_keywords = ["end date", "termination date", "expires on", "valid until", "ends on"]
+
     start_date, end_date = None, None
 
-    for keyword in DATE_KEYWORDS:
-        keyword_contexts = re.findall(rf"{keyword}[:\s]*(\b\d{{1,2}}[./-]\d{{1,2}}[./-]\d{{2,4}}|\b\w+ \d{{1,2}}, \d{{4}})", text, re.IGNORECASE)
-        for context in keyword_contexts:
-            parsed_date = parse_date(context)  # Convert to YYYY-MM-DD
-            if parsed_date:
-                if "start" in keyword.lower() or "arrival" in keyword.lower() or "begins on" in keyword.lower():
-                    start_date = start_date or parsed_date
-                elif "end" in keyword.lower() or "termination" in keyword.lower():
-                    end_date = end_date or parsed_date
+    # Extract start date
+    for keyword in start_date_keywords:
+        matches = re.findall(
+            rf"{keyword}[:\s]*(\b\d{{1,2}}[./-]\d{{1,2}}[./-]\d{{2,4}}|\b\w+ \d{{1,2}}, \d{{4}})",
+            text,
+            re.IGNORECASE,
+        )
+        if matches:
+            start_date = parse_date(matches[0])
+            print(f"Start Date Matched: {matches[0]}")
+            break
 
-    # Fallback to extracting the first two dates if no context found
+    # Extract end date
+    for keyword in end_date_keywords:
+        matches = re.findall(
+            rf"{keyword}[:\s]*(\b\d{{1,2}}[./-]\d{{1,2}}[./-]\d{{2,4}}|\b\w+ \d{{1,2}}, \d{{4}})",
+            text,
+            re.IGNORECASE,
+        )
+        if matches:
+            end_date = parse_date(matches[0])
+            print(f"End Date Matched: {matches[0]}")
+            break
+
+    # Fallback: Use the first two dates
+    dates = re.findall(r"\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\b\w+ \d{1,2}, \d{4}\b", text)
     if not start_date and dates:
-        start_date = parse_date(dates[0])  # Convert to YYYY-MM-DD
+        start_date = parse_date(dates[0])
     if not end_date and len(dates) > 1:
-        end_date = parse_date(dates[1])  # Convert to YYYY-MM-DD
+        end_date = parse_date(dates[1])
+
+    # Ensure `end_date` is after `start_date`
+    if start_date and end_date and start_date >= end_date:
+        end_date = None
 
     return start_date, end_date
 
 
-def parse_date(date_string):
+def infer_end_date_from_terms(start_date, renewal_terms):
     """
-    Convert a date string to the YYYY-MM-DD format. Returns None if parsing fails.
+    Infer the end date from the start date and renewal terms that specify a duration.
     """
-    formats = ["%B %d, %Y", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%m-%d-%Y", "%Y-%m-%d"]
-    for fmt in formats:
-        try:
-            return datetime.strptime(date_string, fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            continue
+    if not start_date or not renewal_terms:
+        return None
+
+    duration_match = re.search(r"(\d+)\s*(month|year)s?", renewal_terms, re.IGNORECASE)
+    if duration_match:
+        duration = int(duration_match.group(1))
+        unit = duration_match.group(2).lower()
+        start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
+        if unit == "month":
+            end_date_obj = start_date_obj + timedelta(days=30 * duration)
+        elif unit == "year":
+            end_date_obj = start_date_obj + timedelta(days=365 * duration)
+        return end_date_obj.strftime("%Y-%m-%d")
     return None
+
 def extract_renewal_terms(text, extracted_data):
-    # Extend keyword list and search for terms
-    keywords = ["auto-renewal", "renewal terms", "valid until", "termination notice", "validity period", "Initial Term"]
-    for keyword in keywords:
-        match = re.search(rf"{keyword}.*", text, re.IGNORECASE)
+    """
+    Extract renewal terms using extended keyword matching and multiline patterns.
+    """
+    for keyword in RENEWAL_KEYWORDS:
+        match = re.search(rf"{keyword}[:\s]*(.*?)(\.|\n|$)", text, re.IGNORECASE)
         if match:
-            renewal_terms = match.group(0)
-            # Extract dates from renewal terms if present
-            dates_in_terms = re.findall(r"\b\w+ \d{1,2}, \d{4}\b", renewal_terms)
-            if len(dates_in_terms) >= 1:
-                extracted_data["start_date"] = extracted_data["start_date"] or dates_in_terms[0]
-            if len(dates_in_terms) >= 2:
-                extracted_data["end_date"] = extracted_data["end_date"] or dates_in_terms[1]
+            renewal_terms = normalize_text(match.group(1))
+            print(f"Renewal Terms Matched: {renewal_terms}")
             return renewal_terms
-    return None
-
-
-
+    return "No renewal terms found."
 
 def extract_payment_details(text):
+    """
+    Extract and format payment details from the text.
+    """
     payments = re.findall(r"\$\d+[.,]?\d*|\€\d+[.,]?\d*", text)
-    return ", ".join(payments) if payments else None
+    if payments:
+        return ", ".join(payments)
+    return "No payment details found."
 
+# Text normalization
+def normalize_text(text):
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"[“”]", '"', text)
+    text = re.sub(r"’", "'", text)
+    text = re.sub(r"-+", "-", text)
+    text = re.sub(r"[^\w\s.,$%&@#-]", "", text)
+    return text.strip()
+
+# Signup
 def signup(request):
     if request.method == 'POST':
         form = UserCreationForm(request.POST)
         if form.is_valid():
             user = form.save()
-            login(request, user)  # Log in the user after signup
-            return redirect('upload_contract')  # Redirect to the upload page
+            login(request, user)
+            return redirect('upload_contract')
     else:
         form = UserCreationForm()
     return render(request, 'auth/signup.html', {'form': form})
 
-
+# Delete contract
 @login_required
-def dashboard(request):
-    contracts = Contract.objects.filter(user=request.user).order_by('-upload_date')
-    return render(request, 'contracts/dashboard.html', {'contracts': contracts})
-
-
-@login_required
-def contract_details(request, pk):
+def delete_contract(request, pk):
     contract = get_object_or_404(Contract, pk=pk, user=request.user)
-    extracted_data = ExtractedData.objects.filter(contract=contract).first()
-    return render(request, 'contracts/contract_details.html', {
-        'contract': contract,
-        'extracted_data': extracted_data,
-    })
+    contract.delete()
+    return redirect('dashboard')
